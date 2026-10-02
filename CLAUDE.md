@@ -43,10 +43,14 @@ pip install pulp highspy networkx
 python controller_milp.py --n 5 --quiet        # under 1 s
 python controller_milp.py --n 6 --quiet        # about 1 s
 python controller_milp.py --n 7 --quiet        # not proven in 5 min (4 threads)
-python controller_milp.py --n 7 --quiet --symmetry xyz   # about 12 s
+python controller_milp.py --n 7 --quiet --symmetry xyz   # about 5 s
 python controller_milp.py                      # 9x9x9, 10-minute limit
 python controller_milp.py --init solution_9x9x9.json --lns 50
+python controller_milp.py --warm solution_9x9x9.json      # full solve, warm start
 ```
+
+The user's venv is `../milp` (`../run.sh` wraps it), and their solution files
+are in `../solutions/`.
 
 ## Regression values
 
@@ -54,21 +58,25 @@ After any change to the model, these must still come out, all proven optimal
 unless noted, with "violations: none" and "xy-symmetric: True" /
 "xyz-symmetric: True". Check both symmetries.
 
-`--symmetry xyz` (all about 12 s or less):
+`--symmetry xyz` (all about 5 s or less):
 
 | `--n` | Online P2P tunnels | Model size | With `--enable-internal-p2ps` |
 |---|---|---|---|
-| 5 | 70 | 133 variables, 211 constraints | 70; 219 constraints |
-| 6 | 120 | 169 variables, 259 constraints | 120; 267 constraints |
-| 7 | 292 | 537 variables, 890 constraints | 302; 917 constraints |
+| 5 | 70 | 133 variables, 314 constraints | 70; 322 constraints |
+| 6 | 120 | 169 variables, 398 constraints | 120; 406 constraints |
+| 7 | 292 | 537 variables, 1294 constraints | 302; 1321 constraints |
 
 `--symmetry xy` (default):
 
 | `--n` | Online P2P tunnels | Model size | With `--enable-internal-p2ps` |
 |---|---|---|---|
-| 5 | 74 | 220 variables, 338 constraints | 74; 350 constraints |
-| 6 | 140 | 348 variables, 534 constraints | 140; 550 constraints |
-| 7 | not proven: 296 found, bound 327.9 after 5 min on 4 threads | 950 variables, 1552 constraints | 308, proven in 241 s on 4 threads; 1597 constraints |
+| 5 | 74 | 220 variables, 509 constraints | 74; 521 constraints |
+| 6 | 140 | 348 variables, 813 constraints | 140; 829 constraints |
+| 7 | not proven (see Results) | 950 variables, 2268 constraints | 308 (proven before the strengthening cuts, 241 s on 4 threads); 2313 constraints |
+
+Without the strengthening cuts (`build_model(..., cuts=frozenset())`) the
+constraint counts were: xyz 211/259/890 (219/267/917 with internal P2Ps), xy
+338/534/1552 (350/550/1597).
 
 For quick xy checks use 5 and 6, and only compare the 7×7×7 model size.
 Every xyz-symmetric build is also xy-symmetric, so an xy result must never
@@ -110,6 +118,13 @@ Things that are easy to break:
    pointing at a controller gets an edge to T and loses one tunnel slot.
 6. **The objective counts the full grid.** It loops over all inner tiles, not
    just the region, and adds shell-cable tunnels as `k * ctrl`.
+7. **Strengthening cuts (`CUTS`).** `needs_out`, `chan_cable`, `dir_used` and
+   `ctrl_nbr` are not needed for correctness. Each is valid for at least one
+   optimal solution, not for every feasible one (`dir_used` in particular
+   forbids pointing with zero channels). A new rule must keep at least one
+   optimum feasible under them. `build_model(cuts=...)` takes a subset for
+   benchmarking. The reasoning and the families that were tried and dropped
+   are in the docstring.
 
 `count_online_p2p()` is the independent checker. It works on the full grid,
 shares no variables with the MILP, and must stay that way. Every result
@@ -145,7 +160,7 @@ One output direction per cable, centre root.
 | 6×6×6 | 140, proven | 140, proven |
 | 7×7×7 | 298, not proven (5-min solve: 296, bound 327.9; 4 LNS rounds from the old 292 build: 298) | 308, proven |
 | 8×8×8 | not run | not run |
-| 9×9×9 | not run | not run |
+| 9×9×9 | 729 found, bound 966.2 (user's 20-min run) | 768 found, bound 973.9 (user's 20-min run) |
 
 `--symmetry xyz`:
 
@@ -155,19 +170,48 @@ One output direction per cable, centre root.
 | 6×6×6 | 120, proven | 120, proven |
 | 7×7×7 | 292, proven | 302, proven |
 | 8×8×8 | not run | not run |
-| 9×9×9 | 736, not proven (9-minute solve: 724, bound 929.9; LNS raised it to 736) | not run |
+| 9×9×9 | 752, not proven, bound 797.9 (user's 8-hour run, before the strengthening cuts) | 778 found, bound 896.3 (user's 10-min run) |
 
 On the cost of symmetric routing: for the optimal 7×7×7 build, a full-grid
 model with unrestricted directions also gave 292. A full-grid search over both
 builds and unrestricted directions on 7×7×7 did not finish (286 found, bound
 348), so the cost in general is not known.
 
+The user's solution files are in `../solutions/`. Their long xy and
+internal-P2P runs were started before the strengthening cuts.
+
+### Benchmarks of the strengthening cuts
+
+Each run used 1 HiGHS thread, alongside 3 of the user's solves on an 8-core
+machine. Timings vary by about ±20%.
+
+| Case | Without cuts | With `CUTS` |
+|---|---|---|
+| xyz 7×7×7, proof time | 15.5 s | 5.2 s |
+| xyz 7×7×7 + internal P2Ps, proof time | 3.1 s | 5.6 s (too short to judge) |
+| xy 7×7×7, 240 s | 296, bound 328.5 | 297, bound 324.9 |
+| xyz 9×9×9, 300 s | 724, bound 925.7 | 726, bound 902.0 |
+| xy 9×9×9, 300 s | 680, bound 973.7 | 709, bound 935.2 |
+| xyz 9×9×9 + internal P2Ps, 300 s | 772, bound 922.9 | 780, bound 892.7 |
+| xyz 9×9×9, 300 s, `--warm` from the 752 build | | 752, bound 883.9 |
+| xyz 9×9×9 + internal P2Ps, 300 s, `--warm` from 778 | | 778, bound 892.0 |
+
+In the LP relaxation alone, `needs_out` lowers the bound from 372.5 to 361.9
+on 7×7×7 and from 1004.3 to 972.2 on 9×9×9. The other three families do not
+change the LP bound; they help the branch-and-bound. Adding the three dropped
+families gave a worse xyz 9×9×9 bound (907.1 against 902.0).
+
 ## Open questions
 
-- 9×9×9 has not been run with xy symmetry. xyz builds (736) are valid
-  `--init` starting points for it.
-- The xyz 9×9×9 gap (736 found, bound about 930) is mostly a weak LP relaxation.
-  Tighter constraints are more likely to help than more solver time.
+- The LP relaxation mixes whole tile configurations (for example a tile that
+  is 60% a cable with tunnels outputting to the shell and 40% a controller).
+  Per-tile cuts cannot remove that, so most of the remaining gap is left to
+  branching. Stronger relaxations would need inequalities across several
+  tiles.
+- The cost of the connectivity flow (big-M `link`) was not measured.
+- The xyz 9×9×9 gap (752 found, bound 797.9 after the user's 8-hour run) is
+  mostly a weak LP relaxation. Tighter constraints are more likely to help
+  than more solver time.
 - Roots other than the centre have not been tried under the current rules.
 - No estimate exists for how long a proof of optimality on 9×9×9 would take.
 - Whether asymmetric builds or asymmetric routing beat the symmetric optimum.

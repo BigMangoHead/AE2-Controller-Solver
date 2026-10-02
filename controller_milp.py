@@ -127,6 +127,28 @@ Why the rest of the reduction is exact
   mirrored axis. With the default root at the centre of an odd grid, they
   hold automatically.
 
+Strengthening (CUTS)
+--------------------
+The LP relaxation on its own is a checkerboard of half-controller,
+half-cable tiles, with tunnels on every face and fractional outputs. Four
+extra families make it tighter and remove interchangeable solutions. None is
+needed for correctness; each keeps at least one optimal solution feasible.
+* needs_out (per inner arc k = u->v): p2p[k] <= sum of dir over u's other
+  arcs. An online tunnel needs an output, and that output cannot be the
+  controller face the tunnel sits on.
+* chan_cable (per arc): chan <= 8 * dir + 24 * dense_u. An ME cable passes at
+  most 8 along its output; replaces the loose 32 * dir for cables.
+* dir_used (per arc): dir <= chan. A direction with no channels can be
+  dropped without changing anything else, so only used directions are set.
+  This removes interchangeable routings. Channel values in an optimum can be
+  taken integral, so a used direction carries at least 1.
+* ctrl_nbr (per non-root tile): ctrl_u <= sum of ctrl over u's inner
+  neighbours. In a connected structure of 2 or more controllers, every
+  controller has a controller neighbour.
+Tried and not kept (no gain on 9x9x9): p2p + dir + ctrl_u <= 1 per face; a
+head-capacity version of chan_cable; own <= 5 * cable for tiles with no
+shell neighbour.
+
 Other choices
 -------------
 * Outer-shell tiles are fixed as ME cable (N). With unlimited capacity this
@@ -170,6 +192,9 @@ DIR_VECS = {v: k for k, v in DIR_NAMES.items()}
 CONTROLLER, CABLE, DENSE = "C", "N", "D"     # tile letters used in builds and files
 SYMMETRIES = {"xy": (0, 1), "xyz": (0, 1, 2)}    # --symmetry -> mirrored axes
 REGION_NAMES = {"xy": "quarter", "xyz": "octant"}
+# Strengthening constraint families (see the docstring). build_model(cuts=...)
+# takes a subset, for benchmarking.
+CUTS = frozenset({"needs_out", "chan_cable", "dir_used", "ctrl_nbr"})
 
 
 # ----------------------------------------------------------------------------
@@ -233,7 +258,8 @@ def region(n, axes):
 # Model
 # ----------------------------------------------------------------------------
 def build_model(n=N, root=None, cable_channels=CABLE_CHANNELS,
-                dense_channels=DENSE_CHANNELS, internal_p2ps=False, symmetry=SYMMETRY):
+                dense_channels=DENSE_CHANNELS, internal_p2ps=False, symmetry=SYMMETRY,
+                cuts=CUTS):
     if n < 3:
         raise ValueError("n must be at least 3")
     h = (n - 1) // 2
@@ -327,6 +353,26 @@ def build_model(n=N, root=None, cable_channels=CABLE_CHANNELS,
         # pointing across its own mirror plane is impossible (symmetric routing).
         prob += (pulp.lpSum(pointer(u, v) for v in neighbours(u, n)) + ctrl[u] <= 1,
                  f"one_dir_{name(u)}")
+
+        # --- strengthening: not needed for correctness, but tightens the LP and
+        # removes interchangeable solutions (see docstring) ---------------------
+        keys = [arc(u, v) for v in neighbours(u, n)]       # with multiplicity
+        dense_u = 1 - ctrl[u] - cable[u]
+        for k, v in {k: v for k, v in zip(keys, neighbours(u, n))}.items():
+            tag = f"{name(k[0])}__{name(k[1])}"
+            if "needs_out" in cuts and not is_shell(v, n):
+                # an online tunnel needs an output on another face
+                prob += (tunnel(u, v) - pulp.lpSum(points[k2] for k2 in keys if k2 != k)
+                         <= 0, f"needs_out_{tag}")
+            if "chan_cable" in cuts:        # an ME cable passes at most 8 along its output
+                prob += (chan[k] - cable_channels * points[k]
+                         - (dense_channels - cable_channels) * dense_u <= 0, f"chan_cable_{tag}")
+            if "dir_used" in cuts:          # no output direction without channels
+                prob += points[k] - chan[k] <= 0, f"dir_used_{tag}"
+        if "ctrl_nbr" in cuts and u != root:
+            # a non-root controller has a controller neighbour
+            prob += (ctrl[u] - pulp.lpSum(is_ctrl(v) for v in neighbours(u, n)
+                                          if not is_shell(v, n)) <= 0, f"ctrl_nbr_{name(u)}")
 
     # --- controller cross rule and max 4 controller neighbours ---------------
     for v in reg_tiles:
@@ -514,8 +560,11 @@ def make_cbc(**kw):
     return cls(**kw)
 
 
-def make_solver(name, msg, time_limit, threads):
+def make_solver(name, msg, time_limit, threads, warm=False):
+    """`warm`: start from the variables' current values."""
     kw = dict(msg=msg, timeLimit=time_limit)
+    if warm:
+        kw["warmStart"] = True
     if threads:
         kw["threads"] = threads
     return pulp.HiGHS(**kw) if name == "highs" else make_cbc(**kw)
@@ -669,7 +718,10 @@ def main():
     ap.add_argument("--lns", type=int, default=0, metavar="ITERS",
                     help="after the full solve (or starting from --init), run ITERS "
                          "rounds of large-neighbourhood search")
-    ap.add_argument("--init", help="start LNS from this solution JSON (skips the full solve)")
+    start = ap.add_mutually_exclusive_group()
+    start.add_argument("--init", help="start LNS from this solution JSON (skips the full solve)")
+    start.add_argument("--warm", metavar="FILE",
+                       help="start the full solve from this solution JSON (warm start)")
     ap.add_argument("--window", type=int, nargs="+", default=[2, 3],
                     help="LNS box side lengths (inside the region) to sample from")
     ap.add_argument("--sub-time", type=float, default=20, help="time limit per LNS sub-MILP")
@@ -694,19 +746,32 @@ def main():
         f"root controller ({region_name} representative) = {meta['root']}, "
         f"controller faces as sinks: {sinks}")
 
-    dirs = None
-    if args.init:
-        n0, build, _ = load_build(args.init)      # routing is recomputed below
+    def load_start(path):
+        n0, build, _ = load_build(path)           # routing is recomputed
         if n0 != args.n:
             sys.exit("the initial solution has a different grid size")
         if not is_symmetric(build, args.n, axes):
             sys.exit(f"the initial solution is not {sym}-symmetric")
         if build[meta["root"]] != CONTROLLER:
             sys.exit(f"root {meta['root']} is not a controller in the initial solution")
+        return build
+
+    dirs = None
+    if args.init:
+        build = load_start(args.init)
     else:
+        if args.warm:
+            # route the start build with its tile types fixed, so that every
+            # variable has a value, then release the bounds and pass it to HiGHS
+            start = solve_fixed(prob, meta, load_start(args.warm), [], args.solver,
+                                max(args.sub_time, 120), args.threads)
+            if start is None:
+                sys.exit("could not route the warm-start build")
+            fix_to_build(meta, start[0], meta["region"])
+            say(f"warm start: {start[2]} online P2P tunnels")
         t0 = time.time()
         result = prob.solve(make_solver(args.solver, not args.quiet,
-                                        args.time_limit, args.threads))
+                                        args.time_limit, args.threads, warm=bool(args.warm)))
         solve_time = time.time() - t0
         if prob.objective.value() is None:
             say("no feasible solution found")

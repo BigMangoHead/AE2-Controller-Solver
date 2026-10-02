@@ -103,6 +103,14 @@ Keep improving a saved solution (skips the full solve):
 python controller_milp.py --init solution_9x9x9.json --lns 200 --out improved.json
 ```
 
+Run the full solve again, starting from a saved solution (warm start). The
+solver begins with that build as its best known solution, so it can discard
+worse parts of the search early:
+
+```
+python controller_milp.py --warm solution_9x9x9.json --time-limit 7200 --out longer.json
+```
+
 Try another root controller, or a smaller volume:
 
 ```
@@ -130,6 +138,7 @@ python controller_milp.py --symmetry xyz
 | `--quiet` | off | Hide the solver log |
 | `--lns ITERS` | 0 | Improvement rounds after the solve |
 | `--init FILE` | none | Start the improvement rounds from a saved solution |
+| `--warm FILE` | none | Start the full solve from a saved solution (not with `--init`) |
 | `--window` | `2 3` | Box sizes (inside the quarter or octant) freed in each improvement round |
 | `--sub-time` | 20 | Seconds per improvement round |
 | `--seed` | 0 | Random seed for the improvement rounds |
