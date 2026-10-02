@@ -48,14 +48,14 @@ accessible channels = 32 x online tunnels.
 
 Symmetry
 --------
-Only builds that are mirror-symmetric through the three centre planes are
-considered (x -> N-1-x, and the same for y and z). The 8 mirror maps form the
-group G. Every tile t has a representative rep(t) in the octant
+Only builds that are mirror-symmetric through the x and y centre planes are
+considered (x -> N-1-x and y -> N-1-y; z is not mirrored). The 4 mirror maps
+form the group G. Every tile t has a representative rep(t) in the quarter
 
-    OCT = { inner tiles t : t_i <= H for every axis i },   H = (N-1) // 2,
+    QTR = { inner tiles t : t_x <= H and t_y <= H },   H = (N-1) // 2,
 
-and the model has variables for OCT only. For N = 9 that is 4^3 = 64 tiles
-instead of 7^3 = 343.
+and the model has variables for QTR only. For N = 9 that is 4 x 4 x 7 = 112
+tiles instead of 7^3 = 343.
 
 How the channel routing is modelled
 -----------------------------------
@@ -82,16 +82,16 @@ Symmetry of the routing (an extra restriction)
 ----------------------------------------------
 The pointer field is required to be mirror-symmetric as well, so points, chan
 and p2p are stored per canonical arc (rep(a), g(b)), where g maps a to rep(a).
-Conservation, the caps and the one-direction rule are written at each octant
+Conservation, the caps and the one-direction rule are written at each quarter
 tile, summing the canonical variables of all 6 of its full-grid arcs. As a
-consequence, a cable lying ON a centre plane (odd N) cannot point across that
-plane: its two arcs across the plane share one variable, which then counts
-twice in the one-direction sum. It can still point along the plane. The
-centre tile of an odd grid can carry nothing.
+consequence, a cable lying ON the x or y centre plane (odd N) cannot point
+across that plane: its two arcs across the plane share one variable, which
+then counts twice in the one-direction sum. It can still point along the
+plane. A cable on the centre line x = y = H can only point along z.
 This restricts the routing, not the build rules: a symmetric build might in
 principle route a little better with an asymmetric pointer field. With the
 pointers fixed per direction, averaging over the mirrors no longer works, so
-asymmetric routing would need full-grid variables, which this octant model
+asymmetric routing would need full-grid variables, which this quarter model
 deliberately avoids.
 
 Why the rest of the reduction is exact
@@ -100,24 +100,24 @@ Why the rest of the reduction is exact
   adds up every tunnel in the full grid, each expressed through its canonical
   variable.
 * Cross rule. The rule is G-invariant, so it is enough to impose it at the
-  tiles of OCT, using the representatives of their neighbours.
+  tiles of QTR, using the representatives of their neighbours.
 * Controller connectivity. Let S be the full controller set and Q = rep(S)
-  its image in the quotient graph, whose nodes are OCT, with [a]~[b] when
+  its image in the quotient graph, whose nodes are QTR, with [a]~[b] when
   some images of a and b are adjacent. Then
       S is connected  <=>  Q is connected in the quotient graph
-                           AND, for every axis i, S has a controller in the
-                           octant's central layer t_i = H.
-  (=>) A connected S must cross every centre plane. For odd N that needs a
+                           AND, for each mirrored axis i (x and y), S has a
+                           controller in the quarter's central layer t_i = H.
+  (=>) A connected S must cross every mirror plane. For odd N that needs a
        tile on the plane t_i = H. For even N it needs an edge between layers
        H and H+1, which again needs a tile with t_i = H.
   (<=) If Q is connected, G permutes the components of S transitively. A
        controller with t_i = H is fixed by the i-mirror (odd N) or adjacent
        to its own mirror image (even N). Either way the i-mirror maps its
        component to itself. G is abelian, so this holds for every component.
-       All three mirrors then fix every component, so there is only one.
+       Both mirrors then fix every component, so there is only one.
   Q's connectivity uses a single-commodity flow from ROOT over the quotient
-  graph, and the central-layer conditions are three linear constraints. With
-  the default root at the centre of an odd grid, those three conditions hold
+  graph, and the central-layer conditions are two linear constraints. With
+  the default root at the centre of an odd grid, those two conditions hold
   automatically.
 
 Other choices
@@ -143,7 +143,7 @@ import pulp
 # Parameters you may want to edit
 # ----------------------------------------------------------------------------
 N = 9                   # side length of the build volume
-ROOT = None             # root controller (any tile; its octant representative is
+ROOT = None             # root controller (any tile; its quarter representative is
                         # used, and all its mirror images become controllers).
                         # None -> centre tile
 CABLE_CHANNELS = 8      # channels an ME cable carries
@@ -160,6 +160,7 @@ DIR_NAMES = {(1, 0, 0): "+x", (-1, 0, 0): "-x", (0, 1, 0): "+y",
 DIR_VECS = {v: k for k, v in DIR_NAMES.items()}
 
 CONTROLLER, CABLE, DENSE = "C", "N", "D"     # tile letters used in builds and files
+MIRROR_AXES = (0, 1)    # builds are mirror-symmetric in x and y; z is not mirrored
 
 
 # ----------------------------------------------------------------------------
@@ -183,30 +184,39 @@ def plane_neighbours(t, axis):
 
 
 def mirrors(n):
-    """The 8 maps of G (mirror through any subset of the 3 centre planes)."""
+    """The maps of G (mirror through any subset of the centre planes of the
+    MIRROR_AXES): 4 maps for x and y."""
     m = n - 1
     out = []
-    for flips in itertools.product((False, True), repeat=3):
-        out.append(lambda t, f=flips: tuple(m - t[i] if f[i] else t[i] for i in range(3)))
+    for flips in itertools.product((False, True), repeat=len(MIRROR_AXES)):
+        f = [False] * 3
+        for axis, flip in zip(MIRROR_AXES, flips):
+            f[axis] = flip
+        out.append(lambda t, f=tuple(f): tuple(m - t[i] if f[i] else t[i] for i in range(3)))
     return out
 
 
 def rep(t, n):
-    """Octant representative of tile t."""
-    return tuple(min(c, n - 1 - c) for c in t)
+    """Quarter representative of tile t."""
+    return tuple(min(c, n - 1 - c) if i in MIRROR_AXES else c for i, c in enumerate(t))
 
 
 def canon_arc(a, b, n, G):
     """Canonical (tail, head) of the full-grid arc a->b. The tail lies in the
-    octant; if several mirror maps send a to rep(a), the smallest image of b is
+    quarter; if several mirror maps send a to rep(a), the smallest image of b is
     used so that the choice is deterministic."""
     r = rep(a, n)
     return r, min(g(b) for g in G if g(a) == r)
 
 
-def octant(n):
+def extent(n):
+    """Largest coordinate of a quarter tile along each axis (the smallest is 1)."""
     h = (n - 1) // 2
-    return [t for t in itertools.product(range(1, h + 1), repeat=3)]
+    return [h if axis in MIRROR_AXES else n - 2 for axis in range(3)]
+
+
+def quarter(n):
+    return list(itertools.product(*(range(1, e + 1) for e in extent(n))))
 
 
 # ----------------------------------------------------------------------------
@@ -225,15 +235,15 @@ def build_model(n=N, root=None, cable_channels=CABLE_CHANNELS,
         raise ValueError(f"root {root} must lie in the inner {(n-2)}^3 block")
     root = rep(root, n)
 
-    oct_tiles = octant(n)
+    q_tiles = quarter(n)
     inner = [t for t in itertools.product(range(n), repeat=3) if not is_shell(t, n)]
     name = lambda t: f"{t[0]}_{t[1]}_{t[2]}"
     prob = pulp.LpProblem("ae2_controller_p2p", pulp.LpMaximize)
 
-    # --- tile types (octant only); dense cable = 1 - ctrl - cable ------------
-    ctrl = {t: prob.add_variable(f"ctrl_{name(t)}", cat="Binary") for t in oct_tiles}
-    cable = {t: prob.add_variable(f"cable_{name(t)}", cat="Binary") for t in oct_tiles}
-    for t in oct_tiles:
+    # --- tile types (quarter only); dense cable = 1 - ctrl - cable ------------
+    ctrl = {t: prob.add_variable(f"ctrl_{name(t)}", cat="Binary") for t in q_tiles}
+    cable = {t: prob.add_variable(f"cable_{name(t)}", cat="Binary") for t in q_tiles}
+    for t in q_tiles:
         prob += ctrl[t] + cable[t] <= 1, f"type_{name(t)}"
     prob += ctrl[root] == 1, "root_is_controller"
     is_ctrl = lambda t: ctrl[rep(t, n)]      # controller indicator of any inner tile
@@ -283,7 +293,7 @@ def build_model(n=N, root=None, cable_channels=CABLE_CHANNELS,
         channels(a, b)
         return points[canon_arc(a, b, n, G)]
 
-    for u in oct_tiles:
+    for u in q_tiles:
         out_u = pulp.lpSum(channels(u, v) for v in neighbours(u, n))
         in_u = pulp.lpSum(channels(w, u) for w in neighbours(u, n) if not is_shell(w, n))
         own = pulp.lpSum(tunnel(u, v) for v in neighbours(u, n) if not is_shell(v, n))
@@ -306,7 +316,7 @@ def build_model(n=N, root=None, cable_channels=CABLE_CHANNELS,
                  f"one_dir_{name(u)}")
 
     # --- controller cross rule and max 4 controller neighbours ---------------
-    for v in oct_tiles:
+    for v in q_tiles:
         for axis in range(3):
             pn = plane_neighbours(v, axis)
             if all(not is_shell(p, n) for p in pn):
@@ -325,7 +335,7 @@ def build_model(n=N, root=None, cable_channels=CABLE_CHANNELS,
                 ru, rv = rep(u, n), rep(v, n)
                 if ru != rv:
                     qedges.add((ru, rv))
-    M = len(oct_tiles) - 1
+    M = len(q_tiles) - 1
     link = {}
     for (a, b) in sorted(qedges):
         if b == root:
@@ -334,14 +344,14 @@ def build_model(n=N, root=None, cable_channels=CABLE_CHANNELS,
         link[a, b] = var
         prob += var <= M * ctrl[a], f"link_a_{name(a)}__{name(b)}"
         prob += var <= M * ctrl[b], f"link_b_{name(a)}__{name(b)}"
-    for v in oct_tiles:
+    for v in q_tiles:
         if v == root:
             continue
         inflow = pulp.lpSum(var for (a, b), var in link.items() if b == v)
         outflow = pulp.lpSum(var for (a, b), var in link.items() if a == v)
         prob += inflow - outflow - ctrl[v] == 0, f"conn_{name(v)}"
-    for axis in range(3):
-        prob += (pulp.lpSum(ctrl[t] for t in oct_tiles if t[axis] == h) >= 1,
+    for axis in MIRROR_AXES:
+        prob += (pulp.lpSum(ctrl[t] for t in q_tiles if t[axis] == h) >= 1,
                  f"central_layer_{axis}")
 
     # --- objective: all online P2P tunnels in the full grid ------------------
@@ -355,7 +365,7 @@ def build_model(n=N, root=None, cable_channels=CABLE_CHANNELS,
             obj.append(k * is_ctrl(u))               # on shell cables, facing controller u
     prob += pulp.lpSum(obj)
 
-    meta = dict(n=n, root=root, octant=oct_tiles, ctrl=ctrl, cable=cable,
+    meta = dict(n=n, root=root, quarter=q_tiles, ctrl=ctrl, cable=cable,
                 points=points, G=G, internal_p2ps=internal_p2ps)
     return prob, meta
 
@@ -375,7 +385,7 @@ def extract_directions(meta):
 
 
 def extract_build(meta):
-    """Expand the octant solution to the full build volume."""
+    """Expand the quarter solution to the full build volume."""
     n = meta["n"]
     build = {}
     for t in itertools.product(range(n), repeat=3):
@@ -513,12 +523,12 @@ def solve_outcome(prob, result):
 
 
 # ----------------------------------------------------------------------------
-# Large-neighbourhood search inside the octant
+# Large-neighbourhood search inside the quarter
 # ----------------------------------------------------------------------------
 def fix_to_build(meta, build, free=()):
-    """Fix every octant tile's type to `build`, except the tiles in `free`."""
+    """Fix every quarter tile's type to `build`, except the tiles in `free`."""
     free = set(free)
-    for t in meta["octant"]:
+    for t in meta["quarter"]:
         for var, s in ((meta["ctrl"][t], CONTROLLER), (meta["cable"][t], CABLE)):
             if t in free:
                 var.lowBound, var.upBound = 0, 1
@@ -530,7 +540,7 @@ def fix_to_build(meta, build, free=()):
 
 def save(path, n, root, build, dirs, tunnels, internal_p2ps=False, **extra):
     with open(path, "w") as fh:
-        json.dump({"n": n, "root": root, "symmetry": "octant",
+        json.dump({"n": n, "root": root, "symmetry": "xy",
                    "internal_p2ps": internal_p2ps, **extra,
                    "online_p2p_tunnels": tunnels,
                    "accessible_channels": tunnels * CHANNELS_PER_P2P,
@@ -541,7 +551,7 @@ def save(path, n, root, build, dirs, tunnels, internal_p2ps=False, **extra):
 
 
 def solve_fixed(prob, meta, build, free, solver, sub_time, threads):
-    """Solve with every octant tile outside `free` fixed to `build`. Directions
+    """Solve with every quarter tile outside `free` fixed to `build`. Directions
     stay free everywhere. Returns (build, directions, verified tunnels) or None."""
     fix_to_build(meta, build, free)
     prob.solve(make_solver(solver, False, sub_time, threads))
@@ -554,12 +564,12 @@ def solve_fixed(prob, meta, build, free, solver, sub_time, threads):
 
 
 def lns(prob, meta, build, iters, window, sub_time, solver, threads, seed, out, log=print):
-    """Repeatedly free a random box of octant tiles, keep the rest fixed, and
+    """Repeatedly free a random box of quarter tiles, keep the rest fixed, and
     solve that sub-MILP (directions are re-optimised everywhere each time)."""
     import random
     rng = random.Random(seed)
     n = meta["n"]
-    h = (n - 1) // 2
+    ext = extent(n)
     # best routing for the starting build (also handles files without directions)
     start = solve_fixed(prob, meta, build, [], solver, max(sub_time, 60), threads)
     if start is None:
@@ -567,9 +577,9 @@ def lns(prob, meta, build, iters, window, sub_time, solver, threads, seed, out, 
     build, dirs, best = start
     log(f"LNS start: {best} online P2P tunnels")
     for it in range(iters):
-        w = [min(rng.choice(window), h) for _ in range(3)]
-        corner = [rng.randint(1, h - wi + 1) for wi in w]
-        free = [t for t in meta["octant"]
+        w = [min(rng.choice(window), e) for e in ext]
+        corner = [rng.randint(1, e - wi + 1) for e, wi in zip(ext, w)]
+        free = [t for t in meta["quarter"]
                 if all(corner[i] <= t[i] < corner[i] + w[i] for i in range(3))]
         res = solve_fixed(prob, meta, build, free, solver, sub_time, threads)
         if res is not None and res[2] >= best:
@@ -578,7 +588,7 @@ def lns(prob, meta, build, iters, window, sub_time, solver, threads, seed, out, 
                 save(out, n, meta["root"], res[0], res[1], res[2],
                      internal_p2ps=meta["internal_p2ps"])
             build, dirs, best = res
-    fix_to_build(meta, build, meta["octant"])    # release all bounds
+    fix_to_build(meta, build, meta["quarter"])    # release all bounds
     return build, dirs, best
 
 
@@ -647,7 +657,7 @@ def main():
                          "rounds of large-neighbourhood search")
     ap.add_argument("--init", help="start LNS from this solution JSON (skips the full solve)")
     ap.add_argument("--window", type=int, nargs="+", default=[2, 3],
-                    help="LNS box side lengths (inside the octant) to sample from")
+                    help="LNS box side lengths (inside the quarter) to sample from")
     ap.add_argument("--sub-time", type=float, default=20, help="time limit per LNS sub-MILP")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--enable-internal-p2ps", action="store_true",
@@ -660,8 +670,8 @@ def main():
     sinks = args.enable_internal_p2ps
     prob, meta = build_model(args.n, args.root, internal_p2ps=sinks)
     say(f"model: {len(prob.variables())} variables, {prob.numConstraints()} constraints "
-        f"(built in {time.time()-t0:.1f}s), octant tiles = {len(meta['octant'])}, "
-        f"root controller (octant representative) = {meta['root']}, "
+        f"(built in {time.time()-t0:.1f}s), quarter tiles = {len(meta['quarter'])}, "
+        f"root controller (quarter representative) = {meta['root']}, "
         f"controller faces as sinks: {sinks}")
 
     dirs = None
@@ -670,7 +680,7 @@ def main():
         if n0 != args.n:
             sys.exit("the initial solution has a different grid size")
         if not is_symmetric(build, args.n):
-            sys.exit("the initial solution is not octant-symmetric")
+            sys.exit("the initial solution is not x/y-symmetric")
         if build[meta["root"]] != CONTROLLER:
             sys.exit(f"root {meta['root']} is not a controller in the initial solution")
     else:
@@ -683,7 +693,7 @@ def main():
             return
         obj = prob.objective.value()
         optimal, bound = solve_outcome(prob, result)
-        status = ("optimal among octant-symmetric builds" if optimal
+        status = ("optimal among x/y-symmetric builds" if optimal
                   else "feasible (limit reached, not proven optimal)")
         say(f"status: {status}   solve time {solve_time:.1f}s")
         if bound is not None:

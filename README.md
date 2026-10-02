@@ -48,11 +48,13 @@ The build volume is an N×N×N cube (default 9×9×9). Every tile is one of:
 These are choices made to keep the model small. They can cost some tunnels.
 
 - **Symmetric builds only.** The build must be mirror-symmetric through the
-  three centre planes of the cube. The model only has variables for one
-  octant (64 tiles instead of 343 for N = 9).
+  x and y centre planes of the cube (x → N−1−x and y → N−1−y). It need not
+  be symmetric in z. The model only has variables for one quarter: x and y
+  up to the middle, all z (112 tiles instead of 343 for N = 9).
 - **Symmetric routing only.** The cable output directions must be
-  mirror-symmetric too. One consequence: a cable lying on a centre plane
-  cannot output across that plane, and the centre tile carries nothing.
+  mirror-symmetric in x and y too. One consequence: a cable lying on the x
+  or y centre plane cannot output across that plane, and a cable on the
+  vertical centre line can only output along z.
 - **A fixed root controller.** One chosen tile (default: the centre) is forced
   to be a controller. Its mirror images become controllers as well.
 
@@ -116,7 +118,7 @@ python controller_milp.py --n 7
 | `--quiet` | off | Hide the solver log |
 | `--lns ITERS` | 0 | Improvement rounds after the solve |
 | `--init FILE` | none | Start the improvement rounds from a saved solution |
-| `--window` | `2 3` | Box sizes (inside the octant) freed in each improvement round |
+| `--window` | `2 3` | Box sizes (inside the quarter) freed in each improvement round |
 | `--sub-time` | 20 | Seconds per improvement round |
 | `--seed` | 0 | Random seed for the improvement rounds |
 | `--enable-internal-p2ps` | off | Let cables output into a controller face (unlimited capacity); that face then holds no tunnel |
@@ -130,7 +132,7 @@ constants at the top of the script.
 
 The program prints:
 
-- **status**: `optimal among octant-symmetric builds`, or `feasible (limit
+- **status**: `optimal among x/y-symmetric builds`, or `feasible (limit
   reached, not proven optimal)`.
 - **best bound and gap**: the solver's upper bound on the tunnel count, and
   its distance from the solution found.
@@ -172,6 +174,9 @@ Best I've currently found is
 | Volume | Online P2P tunnels | Channels | Status |
 |---|---|---|---|
 | 9×9×9 | 752 | 24,064 | Best found; proven upper bound about 790 |
+
+This was found with an earlier version that also required mirror symmetry
+in z.
 
 "Proven optimal" is within the restrictions listed above.
 

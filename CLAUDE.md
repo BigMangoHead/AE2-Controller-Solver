@@ -23,13 +23,16 @@ networkx for the checker).
 | online | The tunnel's channel reaches the outer shell through cable tiles. |
 | shell | The outermost layer of the volume. Fixed as `N`, unlimited capacity, acts as the sink. |
 | inner | The (N−2)³ block inside the shell. Only place controllers may go. |
-| octant | Inner tiles with every coordinate ≤ H = (N−1)//2. The only tiles with variables. |
+| quarter | Inner tiles with x ≤ H and y ≤ H, H = (N−1)//2, any z. The only tiles with variables. Builds are mirror-symmetric in x and y only (`MIRROR_AXES`); z is not mirrored. |
 | direction / pointer | The one neighbour an inner cable sends all its channels to. |
 | root | A tile forced to be a controller; source of the connectivity flow. |
-| LNS | Large-neighbourhood search: free a small box of octant tiles, fix the rest, re-solve. |
+| LNS | Large-neighbourhood search: free a small box of quarter tiles, fix the rest, re-solve. |
 
 Earlier versions of the code called tunnels "connections", ME cable "normal
 cable", and online "valid". Old logs and solution files may use those words.
+Before the switch to x/y symmetry, the model mirrored all three axes and the
+variable region was the "octant" (`"symmetry": "octant"` in old files). Those
+builds are also x/y-symmetric, so `--init` accepts them.
 
 ## Commands
 
@@ -37,7 +40,8 @@ cable", and online "valid". Old logs and solution files may use those words.
 pip install pulp highspy networkx
 
 python controller_milp.py --n 5 --quiet        # under 1 s
-python controller_milp.py --n 7 --quiet        # about 20-25 s
+python controller_milp.py --n 6 --quiet        # about 1 s
+python controller_milp.py --n 7 --quiet        # not proven in 5 min (4 threads)
 python controller_milp.py                      # 9x9x9, 10-minute limit
 python controller_milp.py --init solution_9x9x9.json --lns 50
 ```
@@ -49,21 +53,25 @@ with "violations: none" and "symmetric: True":
 
 | `--n` | Online P2P tunnels | Model size |
 |---|---|---|
-| 5 | 70 | 133 variables, 211 constraints |
-| 6 | 120 | 169 variables, 259 constraints |
-| 7 | 292 | 537 variables, 890 constraints |
+| 5 | 74 | 220 variables, 338 constraints |
+| 6 | 140 | 348 variables, 534 constraints |
+| 7 | not proven: 296 found, bound 327.9 after 5 min on 4 threads | 950 variables, 1552 constraints |
 
 With `--enable-internal-p2ps`:
 
 | `--n` | Online P2P tunnels | Model size |
 |---|---|---|
-| 5 | 70 | 133 variables, 219 constraints |
-| 6 | 120 | 169 variables, 267 constraints |
-| 7 | 302 | 537 variables, 917 constraints |
+| 5 | 74 | 220 variables, 350 constraints |
+| 6 | 140 | 348 variables, 550 constraints |
+| 7 | 308 (proven in 241 s on 4 threads) | 950 variables, 1597 constraints |
+
+For quick checks use 5 and 6. Since every octant-symmetric build is also
+x/y-symmetric, results must never fall below the old octant values (70, 120,
+292; 302 with `--enable-internal-p2ps` on 7).
 
 ## How the model is put together
 
-`build_model()` creates, for octant tiles only:
+`build_model()` creates, for quarter tiles only:
 
 - `ctrl[t]`, `cable[t]`: binary tile type. Dense cable is `1 - ctrl - cable`.
 - `p2p[arc]`: continuous 0..1, a tunnel on cable `u` facing controller `v`.
@@ -75,17 +83,18 @@ With `--enable-internal-p2ps`:
 Things that are easy to break:
 
 1. **Canonical arcs.** `p2p`, `chan` and `points` are stored per canonical arc
-   `canon_arc(a, b)`: the tail is mapped into the octant, and the head may
+   `canon_arc(a, b)`: the tail is mapped into the quarter, and the head may
    land outside it. Always go through the helper closures (`tunnel`,
-   `channels`, `pointer`) and sum over all 6 full-grid neighbours of an octant
+   `channels`, `pointer`) and sum over all 6 full-grid neighbours of a quarter
    tile. Do not index these dicts by raw tile pairs.
-2. **Centre-plane tiles.** For odd N, a tile on a centre plane has two arcs
-   across that plane that share one variable. The sums count it twice on
-   purpose. That is what makes such a cable unable to point across its own
-   mirror plane, which symmetric routing requires.
+2. **Centre-plane tiles.** For odd N, a tile on the x or y centre plane has
+   two arcs across that plane that share one variable. The sums count it
+   twice on purpose. That is what makes such a cable unable to point across
+   its own mirror plane, which symmetric routing requires. The z centre plane
+   is not a mirror plane, so nothing like this happens there.
 3. **Connectivity needs two conditions.** The quotient graph being connected
-   is not enough. The three `central_layer_*` constraints are also required.
-   The proof is in the docstring.
+   is not enough. The `central_layer_*` constraints (one per mirrored axis,
+   so x and y) are also required. The proof is in the docstring.
 4. **Pointer cycles need no constraint.** Conservation already forces zero
    tunnels into a cycle.
 5. **`internal_p2ps` (`--enable-internal-p2ps`).** Off by default. When on,
@@ -94,7 +103,7 @@ Things that are easy to break:
    big-M on `ctrl` (`chan_sink_*`). The checker takes the same flag: a cable
    pointing at a controller gets an edge to T and loses one tunnel slot.
 6. **The objective counts the full grid.** It loops over all inner tiles, not
-   just the octant, and adds shell-cable tunnels as `k * ctrl`.
+   just the quarter, and adds shell-cable tunnels as `k * ctrl`.
 
 `count_online_p2p()` is the independent checker. It works on the full grid,
 shares no variables with the MILP, and must stay that way. Every result
@@ -120,19 +129,20 @@ PuLP 4.0.0 needs Python 3.12 or newer.
 
 ## Results so far
 
-Current rules (one output direction per cable), centre root:
+Current rules (one output direction per cable, x/y symmetry), centre root:
 
-| Volume | Result | Notes |
+| Volume | Result | With `--enable-internal-p2ps` |
 |---|---|---|
-| 5×5×5 | 70, proven | |
-| 6×6×6 | 120, proven | |
-| 7×7×7 | 292, proven | |
-| 8×8×8 | not run | |
-| 9×9×9 | 736, not proven | A 9-minute solve gave 724 with bound 929.9; LNS raised it to 736. |
+| 5×5×5 | 74, proven | 74, proven |
+| 6×6×6 | 140, proven | 140, proven |
+| 7×7×7 | 298, not proven (5-min solve: 296, bound 327.9; 4 LNS rounds from the old 292 build: 298) | 308, proven |
+| 8×8×8 | not run | not run |
+| 9×9×9 | not run | not run |
 
-With `--enable-internal-p2ps` and the centre root, all proven: 5×5×5 gives 70,
-6×6×6 gives 120, 7×7×7 gives 302. The 7×7×7 optimum has 4 cables that output
-into controllers. 9×9×9 not run.
+Earlier results with symmetry in all three axes (octant model), centre root:
+5×5×5 70, 6×6×6 120, 7×7×7 292 (302 with `--enable-internal-p2ps`), all
+proven. 9×9×9: 736, not proven (a 9-minute solve gave 724 with bound 929.9;
+LNS raised it to 736).
 
 On the cost of symmetric routing: for the optimal 7×7×7 build, a full-grid
 model with unrestricted directions also gave 292. A full-grid search over both
@@ -141,7 +151,9 @@ builds and unrestricted directions on 7×7×7 did not finish (286 found, bound
 
 ## Open questions
 
-- The 9×9×9 gap (736 found, bound about 930) is mostly a weak LP relaxation.
+- 9×9×9 has not been run with x/y symmetry. Old octant builds (736) are valid
+  `--init` starting points.
+- The octant 9×9×9 gap (736 found, bound about 930) is mostly a weak LP relaxation.
   Tighter constraints are more likely to help than more solver time.
 - Roots other than the centre have not been tried under the current rules.
 - No estimate exists for how long a proof of optimality on 9×9×9 would take.
