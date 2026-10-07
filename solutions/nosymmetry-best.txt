@@ -1,0 +1,102 @@
+final verified result: 761 online P2P tunnels = 24352 accessible channels   violations: none   symmetry: none
+tiles:  C = ME Controller, N = ME cable (8 channels), D = ME dense cable (32 channels)
+cable output directions:  > +x  < -x  v +y  ^ -y  + +z  - -z  (C controller, . unused, # shell)
+
+z = 0
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+
+z = 1
+  N N N N N N N N N     # # # # # # # # #
+  N C C C C C C C N     # C C C C C C C #
+  N C C N C N C C N     # C C - C - C C #
+  N C N C N C N C N     # C - C - C - C #
+  N C C N C N C C N     # C C - C - C C #
+  N C N C N C N C N     # C - C - C - C #
+  N C C N C N C N N     # C C - C - C > #
+  N C C C C C C C N     # C C C C C C C #
+  N N N N N N N N N     # # # # # # # # #
+
+z = 2
+  N N N N N N N N N     # # # # # # # # #
+  N C N C N C N C N     # C ^ C ^ C ^ C #
+  N N C C N N C N N     # < C C ^ - C > #
+  N C N C N C N C N     # C - C - C - C #
+  N N C N C N C N N     # < C - C - C > #
+  N C N C C C N C N     # C - C C C - C #
+  N N C N N N C N N     # < C - v - C > #
+  N C N C N C N C N     # C v C v C v C #
+  N N N N N N N N N     # # # # # # # # #
+
+z = 3
+  N N N N N N N N N     # # # # # # # # #
+  N C C N C N C N N     # C C ^ C ^ C > #
+  N C C N C N C C N     # C C ^ C ^ C C #
+  N N C N C C N N N     # < C v C C > > #
+  N D D D N C C C N     # < < < < C C C #
+  N N N N N C N N N     # < ^ ^ ^ C > > #
+  N C N C C N C C N     # C ^ C C v C C #
+  N C C N C N C C N     # C C v C v C C #
+  N N N N N N N N N     # # # # # # # # #
+
+z = 4
+  N N N N N N N N N     # # # # # # # # #
+  N C N C N C N C N     # C ^ C ^ C ^ C #
+  N N N C N C N N N     # < ^ C ^ C ^ > #
+  N C C C N C C C N     # C C C + C C C #
+  N N N C C N N N N     # < < C C + > > #
+  N C C N C N C C N     # C C - C ^ C C #
+  N N C C N C C N N     # < C C v C C > #
+  N C N C N C N C N     # C v C v C v C #
+  N N N N N N N N N     # # # # # # # # #
+
+z = 5
+  N N N N N N N N N     # # # # # # # # #
+  N N C N C N C C N     # < C ^ C ^ C C #
+  N C C N C N C C N     # C C ^ C ^ C C #
+  N N N C N C N N N     # < < C v C > > #
+  N C C N D D C C N     # C C > + < C C #
+  N N N C N C N N N     # < < C ^ C > > #
+  N C C N C N C C N     # C C v C v C C #
+  N N C N C N C N N     # < C v C v C > #
+  N N N N N N N N N     # # # # # # # # #
+
+z = 6
+  N N N N N N N N N     # # # # # # # # #
+  N C N C N C N C N     # C ^ C ^ C ^ C #
+  N N C N C N C N N     # < C + C + C > #
+  N C N C N C N C N     # C + C + C + C #
+  N N C N D N C N N     # < C + + + C > #
+  N C N C C C N C N     # C + C C C + C #
+  N N C N C N C N N     # < C + C + C > #
+  N C N C N C N C N     # C v C v C v C #
+  N N N N N N N N N     # # # # # # # # #
+
+z = 7
+  N N N N N N N N N     # # # # # # # # #
+  N C C C C C C C N     # C C C C C C C #
+  N C C N C N C C N     # C C + C + C C #
+  N C N C N C N C N     # C + C + C + C #
+  N C C N D N C C N     # C C + + + C C #
+  N C N C N C N C N     # C + C + C + C #
+  N C C N C N C C N     # C C + C + C C #
+  N C C C C C C C N     # C C C C C C C #
+  N N N N N N N N N     # # # # # # # # #
+
+z = 8
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
+  N N N N N N N N N     # # # # # # # # #
