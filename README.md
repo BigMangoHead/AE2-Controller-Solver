@@ -2,69 +2,16 @@
 
 Finds a layout of ME Controllers and ME cables for Applied Energistics 2 that
 puts as many **ME P2P tunnels** as possible on controller faces, with every
-tunnel supplied by a channel. Each online tunnel makes 32 controller channels
-accessible, so more tunnels means more channels.
+tunnel supplied by a channel.
 
 The problem is solved as a mixed-integer linear program (MILP) in
-`controller_milp.py`.
+`controller_milp.py`. There is also a large neighborhood search (LNS) method
+which optimizes existing solutions.
 
-## The problem
+We generally assume that smart cables hold 8 channels, and dense cables hold
+32 channels. You can create better designs if channel capacity is higher, as
+it becomes easier to fit P2Ps.
 
-The build volume is an N×N×N cube (default 9×9×9). Every tile is one of:
-
-| Letter | Block | Rules |
-|---|---|---|
-| `C` | ME Controller | Only in the inner (N−2)³ block (7×7×7 for N = 9). |
-| `N` | ME cable (glass, covered or smart) | Carries 8 channels. Can hold P2P tunnels. |
-| `D` | ME dense cable | Carries 32 channels. Cannot hold P2P tunnels. |
-
-**Controller rules**
-
-- All controllers must form one connected structure.
-- No controller may have controller neighbours on both sides along two
-  different axes. So a controller never has 5 or 6 controller neighbours, and
-  never 4 that lie in one plane.
-
-**P2P tunnels**
-
-- An ME cable can hold one P2P tunnel on each face that touches a controller.
-- A tunnel is *online* if it gets a channel. That channel must be routed
-  through cable tiles to the outer shell of the volume.
-- A cable passes at most 8 channels and a dense cable at most 32. A cable's
-  own tunnels count towards its 8.
-- Every inner cable sends all the channels it carries to **exactly one**
-  neighbour (another cable or a shell tile).
-- Outer-shell tiles have unlimited capacity. The model fixes them as ME cable.
-- Tunnels without a channel are allowed. They just don't count.
-- With `--enable-internal-p2ps`, an inner cable (normal or dense) may also
-  output into a neighbouring controller face. That face takes any number of
-  channels, but it then cannot hold a P2P tunnel, so it doesn't count towards
-  the goal. Without the option, cables never output into controllers.
-
-**Goal:** maximise the number of online P2P tunnels.
-
-## Restrictions the model adds
-
-These are choices made to keep the model small. They can cost some tunnels.
-
-- **Symmetric builds only.** `--symmetry` chooses which mirror symmetry the
-  build must have:
-  - `xy` (default): mirror-symmetric through the x and y centre planes
-    (x → N−1−x and y → N−1−y), free in z. The model has variables for one
-    quarter: x and y up to the middle, all z (112 tiles instead of 343 for
-    N = 9).
-  - `xyz`: mirror-symmetric through all three centre planes. The model has
-    variables for one octant (64 tiles for N = 9). Smaller and much faster
-    to solve, but it can miss better builds that are only xy-symmetric.
-- **Symmetric routing only.** The cable output directions must have the same
-  symmetry. One consequence: a cable lying on a mirrored centre plane cannot
-  output across that plane. With `xy`, a cable on the vertical centre line
-  can only output along z; with `xyz`, the centre tile carries nothing.
-- **A fixed root controller.** One chosen tile (default: the centre) is forced
-  to be a controller. Its mirror images become controllers as well.
-
-"Optimal" in the program's output always means optimal among builds and
-routings that satisfy these restrictions.
 
 ## Install
 
@@ -79,7 +26,7 @@ solver. `networkx` is used by the independent checker.
 
 ## Usage
 
-Solve the 9×9×9 problem with a 10-minute limit:
+Solve the problem with a 10-minute limit:
 
 ```
 python controller_milp.py
@@ -91,24 +38,24 @@ Longer run on 8 threads:
 python controller_milp.py --time-limit 86400 --threads 8 --out my_run.json
 ```
 
-Solve, then run 100 improvement rounds:
+Solve, then run 100 LNS improvement rounds:
 
 ```
 python controller_milp.py --time-limit 900 --lns 100
 ```
 
-Keep improving a saved solution (skips the full solve):
+Improve a saved solution using LNS:
 
 ```
 python controller_milp.py --init solution_9x9x9.json --lns 200 --out improved.json
 ```
 
-Run the full solve again, starting from a saved solution (warm start). The
+Run the full solve for two hours, starting from a saved solution (warm start). The
 solver begins with that build as its best known solution, so it can discard
 worse parts of the search early:
 
 ```
-python controller_milp.py --warm solution_9x9x9.json --time-limit 7200 --out longer.json
+python controller_milp.py --warm solution.json --time-limit 7200 --out longer.json
 ```
 
 Try another root controller, or a smaller volume:
@@ -118,7 +65,7 @@ python controller_milp.py --root 1 1 1
 python controller_milp.py --n 7
 ```
 
-Require symmetry in all three axes (smaller, faster model):
+Require symmetry in all three axes:
 
 ```
 python controller_milp.py --symmetry xyz
@@ -128,15 +75,15 @@ python controller_milp.py --symmetry xyz
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--n` | 9 | Side length of the build volume |
-| `--symmetry` | `xy` | `xy` (mirror x and y) or `xyz` (mirror all three axes) |
+| `--n` | 9 | Side length of the build volume, or 2 + the size of the controller |
+| `--symmetry` | `xy` | `xy` (mirror x and y), `xyz` (mirror all three axes) or `none` |
 | `--root x y z` | centre | Tile forced to be a controller |
 | `--time-limit` | 600 | Seconds for the full solve |
 | `--threads` | solver default | CPU threads |
 | `--solver` | `highs` | `highs` or `cbc` |
 | `--out` | `solution.json` | Where the result is saved |
 | `--quiet` | off | Hide the solver log |
-| `--lns ITERS` | 0 | Improvement rounds after the solve |
+| `--lns ITERS` | 0 | LNS improvement rounds after the solve |
 | `--init FILE` | none | Start the improvement rounds from a saved solution |
 | `--warm FILE` | none | Start the full solve from a saved solution (not with `--init`) |
 | `--window` | `2 3` | Box sizes (inside the quarter or octant) freed in each improvement round |
@@ -153,7 +100,7 @@ constants at the top of the script.
 
 The program prints:
 
-- **status**: `optimal among xy-symmetric builds` (or `xyz-symmetric`), or `feasible (limit
+- **status**: `optimal among xy-symmetric builds` (or `xyz-symmetric`, or `unrestricted` for `--symmetry none`), or `feasible (limit
   reached, not proven optimal)`.
 - **best bound and gap**: the solver's upper bound on the tunnel count, and
   its distance from the solution found.
@@ -190,22 +137,18 @@ stay offline; the program reports only the number that are online.
 
 ## Results
 
-Best I've currently found is
+See `solutions/README.md`.
 
-| Volume | Online P2P tunnels | Channels | Status |
-|---|---|---|---|
-| 9×9×9 | 752 | 24,064 | Best found; proven upper bound about 790 |
-
-This was found with symmetry in all three axes (now `--symmetry xyz`).
-
-"Proven optimal" is within the restrictions listed above.
-
-## Notes for long runs
+## Notes for running the solver
 
 - Set a time limit instead of stopping with Ctrl+C. The full solve only saves
   its result when it finishes.
-- Improvement rounds save every time they find a better build, so stopping
+- LNS rounds save every time they find a better build, so stopping
   them early is safe.
 - HiGHS cannot save a search and resume it later. A crash loses the run.
-- The choice of root controller can change the optimum. It is worth trying a
-  few roots before committing a long run to one.
+- One of the worse choices I made was having a fixed root for checking connectivity of ME controllers.
+  In practice, what this means is that the solver assumes that a certain block
+  is always a controller block. By default, this is the center block, and can be changed
+  with --root.
+- I found RAM to be a more significant limitation than computation time. The
+  MILP solver can use huge amounts of RAM.

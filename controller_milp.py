@@ -48,11 +48,13 @@ accessible channels = 32 x online tunnels.
 
 Symmetry
 --------
-Only mirror-symmetric builds are considered. --symmetry picks the mirrored
-axes (x -> N-1-x, and the same for y and z):
+--symmetry picks the mirror symmetry the build must have, by naming the
+mirrored axes (x -> N-1-x, and the same for y and z):
 
   xy   (default) mirrors in x and y; z is not mirrored. 4 maps.
   xyz  mirrors in x, y and z. 8 maps.
+  none no symmetry. G holds only the identity, every inner tile has its own
+       variables, and nothing below about centre planes applies.
 
 The mirror maps form the group G. Every tile t has a representative rep(t),
 found by folding each mirrored coordinate into its lower half, in the region
@@ -60,8 +62,8 @@ found by folding each mirrored coordinate into its lower half, in the region
     REG = { inner tiles t : t_i <= H for every mirrored axis i },   H = (N-1) // 2,
 
 and the model has variables for REG only. REG is the "quarter" for xy
-(4 x 4 x 7 = 112 tiles for N = 9) and the "octant" for xyz (4^3 = 64 tiles),
-instead of 7^3 = 343.
+(4 x 4 x 7 = 112 tiles for N = 9) and the "octant" for xyz (4^3 = 64 tiles).
+For none it is the whole inner block (7^3 = 343 tiles).
 
 How the channel routing is modelled
 -----------------------------------
@@ -190,8 +192,9 @@ DIR_NAMES = {(1, 0, 0): "+x", (-1, 0, 0): "-x", (0, 1, 0): "+y",
 DIR_VECS = {v: k for k, v in DIR_NAMES.items()}
 
 CONTROLLER, CABLE, DENSE = "C", "N", "D"     # tile letters used in builds and files
-SYMMETRIES = {"xy": (0, 1), "xyz": (0, 1, 2)}    # --symmetry -> mirrored axes
-REGION_NAMES = {"xy": "quarter", "xyz": "octant"}
+SYMMETRIES = {"xy": (0, 1), "xyz": (0, 1, 2), "none": ()}   # --symmetry -> mirrored axes
+REGION_NAMES = {"xy": "quarter", "xyz": "octant", "none": "inner"}
+SYMMETRY_LABELS = {"xy": "xy-symmetric", "xyz": "xyz-symmetric", "none": "unrestricted"}
 # Strengthening constraint families (see the docstring). build_model(cuts=...)
 # takes a subset, for benchmarking.
 CUTS = frozenset({"needs_out", "chan_cable", "dir_used", "ctrl_nbr"})
@@ -219,7 +222,7 @@ def plane_neighbours(t, axis):
 
 def mirrors(n, axes):
     """The maps of G (mirror through any subset of the centre planes of the
-    mirrored `axes`): 4 maps for xy, 8 for xyz."""
+    mirrored `axes`): 4 maps for xy, 8 for xyz, only the identity for none."""
     m = n - 1
     out = []
     for flips in itertools.product((False, True), repeat=len(axes)):
@@ -727,8 +730,8 @@ def main():
     ap.add_argument("--sub-time", type=float, default=20, help="time limit per LNS sub-MILP")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--symmetry", choices=sorted(SYMMETRIES), default=SYMMETRY,
-                    help="mirror symmetry of the build: xy (x and y only) or xyz "
-                         "(all three axes) (default %(default)s)")
+                    help="mirror symmetry of the build: xy (x and y only), xyz "
+                         "(all three axes) or none (default %(default)s)")
     ap.add_argument("--enable-internal-p2ps", action="store_true",
                     help="let inner cables output into a controller face (a sink of "
                          "unlimited capacity); that face then cannot hold a P2P tunnel")
@@ -751,7 +754,7 @@ def main():
         if n0 != args.n:
             sys.exit("the initial solution has a different grid size")
         if not is_symmetric(build, args.n, axes):
-            sys.exit(f"the initial solution is not {sym}-symmetric")
+            sys.exit(f"the initial solution is not {SYMMETRY_LABELS[sym]}")
         if build[meta["root"]] != CONTROLLER:
             sys.exit(f"root {meta['root']} is not a controller in the initial solution")
         return build
@@ -778,7 +781,7 @@ def main():
             return
         obj = prob.objective.value()
         optimal, bound = solve_outcome(prob, result)
-        status = (f"optimal among {sym}-symmetric builds" if optimal
+        status = (f"optimal among {SYMMETRY_LABELS[sym]} builds" if optimal
                   else "feasible (limit reached, not proven optimal)")
         say(f"status: {status}   solve time {solve_time:.1f}s")
         if bound is not None:
@@ -800,7 +803,7 @@ def main():
 
     tunnels, errors = count_online_p2p(build, args.n, dirs, internal_p2ps=sinks)
     say(f"final verified result: {describe(tunnels)}   violations: {errors or 'none'}   "
-        f"{sym}-symmetric: {is_symmetric(build, args.n, axes)}")
+        + (f"{sym}-symmetric: {is_symmetric(build, args.n, axes)}" if axes else "symmetry: none"))
     print_build(build, args.n, dirs)
 
 

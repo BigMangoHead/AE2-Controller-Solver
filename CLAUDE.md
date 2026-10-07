@@ -23,8 +23,8 @@ networkx for the checker).
 | online | The tunnel's channel reaches the outer shell through cable tiles. |
 | shell | The outermost layer of the volume. Fixed as `N`, unlimited capacity, acts as the sink. |
 | inner | The (N−2)³ block inside the shell. Only place controllers may go. |
-| symmetry | `--symmetry xy` (default) mirrors x and y; `--symmetry xyz` mirrors all three axes. `SYMMETRIES` maps the name to the mirrored axes, which are threaded through `mirrors`, `rep`, `canon_arc`, `extent`, `region` and `is_symmetric`. |
-| region | The only tiles with variables: inner tiles with t_i ≤ H = (N−1)//2 on every mirrored axis. Called the "quarter" for xy (any z) and the "octant" for xyz. |
+| symmetry | `--symmetry xy` (default) mirrors x and y; `--symmetry xyz` mirrors all three axes; `--symmetry none` mirrors nothing (the group is just the identity, the region is the whole inner block). `SYMMETRIES` maps the name to the mirrored axes, which are threaded through `mirrors`, `rep`, `canon_arc`, `extent`, `region` and `is_symmetric`. |
+| region | The only tiles with variables: inner tiles with t_i ≤ H = (N−1)//2 on every mirrored axis. Called the "quarter" for xy (any z), the "octant" for xyz, and "inner" for none. |
 | direction / pointer | The one neighbour an inner cable sends all its channels to. |
 | root | A tile forced to be a controller; source of the connectivity flow. |
 | LNS | Large-neighbourhood search: free a small box of region tiles, fix the rest, re-solve. |
@@ -77,6 +77,10 @@ unless noted, with "violations: none" and "xy-symmetric: True" /
 Without the strengthening cuts (`build_model(..., cuts=frozenset())`) the
 constraint counts were: xyz 211/259/890 (219/267/917 with internal P2Ps), xy
 338/534/1552 (350/550/1597).
+
+`--symmetry none`: 5 gives 74 (proven in about 2 s; 588 variables, 1326
+constraints; 1353 with internal P2Ps). 6 is not proven in 3 min (1466
+variables, 3395 constraints).
 
 For quick xy checks use 5 and 6, and only compare the 7×7×7 model size.
 Every xyz-symmetric build is also xy-symmetric, so an xy result must never
@@ -172,6 +176,13 @@ One output direction per cable, centre root.
 | 8×8×8 | not run | not run |
 | 9×9×9 | 752, not proven, bound 797.9 (user's 8-hour run, before the strengthening cuts) | 778 found, bound 896.3 (user's 10-min run) |
 
+`--symmetry none` (3-minute runs on 2 threads):
+
+| Volume | Result | With `--enable-internal-p2ps` |
+|---|---|---|
+| 5×5×5 | 74, proven | 74, proven |
+| 6×6×6 | 164 found, bound 175.6 | 165 found, bound 172.4 |
+
 On the cost of symmetric routing: for the optimal 7×7×7 build, a full-grid
 model with unrestricted directions also gave 292. A full-grid search over both
 builds and unrestricted directions on 7×7×7 did not finish (286 found, bound
@@ -214,7 +225,9 @@ families gave a worse xyz 9×9×9 bound (907.1 against 902.0).
   than more solver time.
 - Roots other than the centre have not been tried under the current rules.
 - No estimate exists for how long a proof of optimality on 9×9×9 would take.
-- Whether asymmetric builds or asymmetric routing beat the symmetric optimum.
+- Asymmetric builds do beat the symmetric optimum on 6×6×6 (164 found with
+  `--symmetry none` against a proven 140 for xy). 7×7×7 and larger have not
+  been run without symmetry.
 
 ## Assumptions not checked against the game
 
