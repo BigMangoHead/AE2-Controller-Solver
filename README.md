@@ -10,7 +10,7 @@ which optimizes existing solutions.
 
 We generally assume that smart cables hold 8 channels, and dense cables hold
 32 channels. You can create better designs if channel capacity is higher, as
-it becomes easier to fit P2Ps.
+it becomes easier to fit P2Ps. By default, **internal P2Ps are disabled**.
 
 
 ## Install
@@ -26,10 +26,10 @@ solver. `networkx` is used by the independent checker.
 
 ## Usage
 
-Solve the problem with a 10-minute limit:
+Solve the problem with a 10-minute limit and allow internal P2Ps
 
 ```
-python controller_milp.py
+python controller_milp.py --enable-internal-p2ps
 ```
 
 Longer run on 8 threads:
